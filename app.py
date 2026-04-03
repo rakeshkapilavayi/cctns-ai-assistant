@@ -75,7 +75,47 @@ def schema():
     return jsonify(DB_SCHEMA)
 
 
-# ── Main Chat Endpoint ────────────────────────────────────────────────────────
+# ── Update API Key at Runtime ─────────────────────────────────────────────────
+@app.route("/update-key", methods=["POST"])
+def update_key():
+    """
+    Allows changing the Groq API key without redeploying.
+    Request: { "api_key": "gsk_xxx..." }
+    """
+    try:
+        data = request.get_json(force=True)
+        new_key = data.get("api_key", "").strip()
+
+        if not new_key:
+            return jsonify({"error": "api_key is required"}), 400
+        if not new_key.startswith("gsk_"):
+            return jsonify({"error": "Invalid key format — Groq keys start with 'gsk_'"}), 400
+
+        # Update the environment variable and reinitialize all Groq clients
+        os.environ["GROQ_API_KEY"] = new_key
+
+        # Reload all modules that hold a Groq client instance
+        import groq
+        import sql_query, analytics_query, case_lookup, faq, small_talk, help, router
+
+        new_client = groq.Groq(api_key=new_key)
+        sql_query.client       = new_client
+        analytics_query.client = new_client
+        case_lookup.client     = new_client
+        faq.client             = new_client
+        small_talk.client      = new_client
+        help.client            = new_client
+        router.client          = new_client
+
+        print(f"[update-key] API key updated to: {new_key[:8]}...")
+        return jsonify({"status": "ok", "message": "API key updated successfully"})
+
+    except Exception as e:
+        print(f"[update-key] Error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+
 @app.route("/chat", methods=["POST"])
 def chat():
     """
