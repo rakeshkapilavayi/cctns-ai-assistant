@@ -1,0 +1,6 @@
+flask
+flask-cors
+groq
+python-dotenv
+pandas
+gunicorn
