@@ -364,9 +364,10 @@
   </div>
 
   <div class="panel-tabs">
-    <button class="tab-btn active" onclick="switchTab('stats',   this)">Stats</button>
-    <button class="tab-btn"        onclick="switchTab('history', this)">History</button>
-    <button class="tab-btn"        onclick="switchTab('sql',     this)">SQL Log</button>
+    <button class="tab-btn active" onclick="switchTab('stats',    this)">Stats</button>
+    <button class="tab-btn"        onclick="switchTab('history',  this)">History</button>
+    <button class="tab-btn"        onclick="switchTab('sql',      this)">SQL Log</button>
+    <button class="tab-btn"        onclick="switchTab('settings', this)">⚙ Settings</button>
   </div>
 
   <div class="panel-content">
@@ -411,11 +412,136 @@
       </div>
       <div id="sql-log"></div>
     </div>
-  </div>
+
+    <!-- Settings -->
+    <div class="tab-pane" id="tab-settings">
+      <div class="stat-card" style="margin-bottom:12px">
+        <div class="stat-label">Backend URL</div>
+        <input id="set-api-url" type="text" value=""
+          style="width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:5px;
+                 padding:8px 10px;color:var(--text-primary);font-family:var(--font-mono);font-size:11px;
+                 margin-top:6px;outline:none;"
+          placeholder="https://your-app.onrender.com"/>
+        <div style="font-size:10px;color:var(--text-dim);margin-top:4px">Change if you redeploy to a new URL</div>
+      </div>
+
+      <div class="stat-card" style="margin-bottom:12px">
+        <div class="stat-label">Groq API Key</div>
+        <div style="display:flex;gap:6px;margin-top:6px;align-items:center">
+          <input id="set-api-key" type="password"
+            style="flex:1;background:var(--bg-input);border:1px solid var(--border);border-radius:5px;
+                   padding:8px 10px;color:var(--text-primary);font-family:var(--font-mono);font-size:11px;
+                   outline:none;"
+            placeholder="gsk_xxxxxxxxxxxxxxxxxxxx"/>
+          <button onclick="toggleKeyVisibility()"
+            style="width:32px;height:32px;background:var(--bg-card);border:1px solid var(--border);
+                   border-radius:5px;color:var(--text-muted);cursor:pointer;font-size:14px;flex-shrink:0;"
+            id="key-eye-btn" title="Show/hide key">👁</button>
+        </div>
+        <div style="font-size:10px;color:var(--text-dim);margin-top:4px">
+          Stored in browser memory only — never sent anywhere except your backend.
+        </div>
+      </div>
+
+      <button onclick="saveSettings()"
+        style="width:100%;padding:10px;background:var(--accent);color:var(--bg-deep);
+               border:none;border-radius:6px;font-family:var(--font-display);font-size:13px;
+               font-weight:700;letter-spacing:2px;cursor:pointer;transition:all 0.2s;margin-bottom:8px;"
+        onmouseover="this.style.background='#33ddff'" onmouseout="this.style.background='var(--accent)'">
+        SAVE &amp; APPLY
+      </button>
+
+      <div id="settings-msg" style="font-family:var(--font-mono);font-size:11px;text-align:center;
+           padding:6px;border-radius:4px;display:none;"></div>
+
+      <div class="stat-card" style="margin-top:8px">
+        <div class="stat-label">Current Status</div>
+        <div id="settings-status" style="font-size:11px;color:var(--text-muted);margin-top:4px;font-family:var(--font-mono);">
+          Loading...
+        </div>
+      </div>
+      </div><!-- end panel-content -->
+  </div><!-- end tab-settings -->
 </aside>
 
 <script>
-const API_BASE = 'https://cctns-ai-assistant-24ri.onrender.com';
+// ── Settings — API_BASE and API key are changeable at runtime ────────────────
+const DEFAULT_API_BASE = 'https://cctns-ai-assistant-24ri.onrender.com';
+
+let API_BASE = localStorage.getItem('cctns_api_base') || DEFAULT_API_BASE;
+let GROQ_API_KEY_OVERRIDE = localStorage.getItem('cctns_api_key') || '';
+
+function initSettings() {
+  document.getElementById('set-api-url').value = API_BASE;
+  document.getElementById('set-api-key').value = GROQ_API_KEY_OVERRIDE;
+  updateSettingsStatus();
+}
+
+function updateSettingsStatus() {
+  const el = document.getElementById('settings-status');
+  const keySet = GROQ_API_KEY_OVERRIDE && GROQ_API_KEY_OVERRIDE.length > 10;
+  el.innerHTML = `
+    <div style="margin-bottom:4px">🌐 <b>URL:</b> ${API_BASE}</div>
+    <div>🔑 <b>API Key:</b> ${keySet ? '✅ Custom key active (' + GROQ_API_KEY_OVERRIDE.slice(0,8) + '...)' : '⚠️ Using server default'}</div>
+  `;
+}
+
+function toggleKeyVisibility() {
+  const inp = document.getElementById('set-api-key');
+  const btn = document.getElementById('key-eye-btn');
+  if (inp.type === 'password') { inp.type = 'text';     btn.textContent = '🙈'; }
+  else                         { inp.type = 'password'; btn.textContent = '👁'; }
+}
+
+async function saveSettings() {
+  const newUrl = document.getElementById('set-api-url').value.trim().replace(/\/$/, '');
+  const newKey = document.getElementById('set-api-key').value.trim();
+  const msgEl  = document.getElementById('settings-msg');
+
+  if (!newUrl) {
+    showSettingsMsg('⚠️ URL cannot be empty', 'warning'); return;
+  }
+
+  // If a new API key is provided, send it to the backend to apply
+  if (newKey && newKey !== GROQ_API_KEY_OVERRIDE) {
+    try {
+      showSettingsMsg('⏳ Applying new API key...', 'info');
+      const res = await fetch(`${newUrl}/update-key`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: newKey })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showSettingsMsg(`❌ ${data.error || 'Failed to update key'}`, 'error'); return;
+      }
+    } catch (e) {
+      showSettingsMsg(`❌ Could not reach backend: ${e.message}`, 'error'); return;
+    }
+  }
+
+  // Save to localStorage and apply
+  API_BASE = newUrl;
+  GROQ_API_KEY_OVERRIDE = newKey;
+  localStorage.setItem('cctns_api_base', newUrl);
+  if (newKey) localStorage.setItem('cctns_api_key', newKey);
+  else        localStorage.removeItem('cctns_api_key');
+
+  updateSettingsStatus();
+  showSettingsMsg('✅ Settings saved!', 'success');
+}
+
+function showSettingsMsg(text, type) {
+  const el = document.getElementById('settings-msg');
+  const colors = { success: '#2ed573', error: '#ff4757', warning: '#ffa502', info: '#00d4ff' };
+  el.style.display = 'block';
+  el.style.color = colors[type] || '#e8f4fd';
+  el.style.background = colors[type] ? colors[type] + '18' : 'transparent';
+  el.style.border = `1px solid ${colors[type] || '#333'}44`;
+  el.textContent = text;
+  if (type === 'success') setTimeout(() => { el.style.display = 'none'; }, 3000);
+}
+
 let sessionQueries = 0, recognition = null, isRecording = false;
 let chartInstances = {}, historyItems = [], sqlLogs = [];
 let panelOpen = false;
@@ -423,6 +549,9 @@ let panelOpen = false;
 // Clock
 function updateClock() { document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-IN',{hour12:false}); }
 updateClock(); setInterval(updateClock, 1000);
+
+// Init settings on load
+initSettings();
 
 // ── Panel toggle ──────────────────────────────────────────────────────────────
 function togglePanel() { panelOpen ? closePanel() : openPanel(); }
