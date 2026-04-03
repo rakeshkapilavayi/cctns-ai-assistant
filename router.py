@@ -66,9 +66,13 @@ def route(query: str) -> str:
 
     query_lower = query.lower().strip()
 
-    # CASE_LOOKUP: presence of report/case/fir + number
-    if re.search(r'\b(report|case|fir)\b.*\d{3,}', query_lower) or \
-       re.search(r'#\s*\d{3,}', query_lower):
+    # CASE_LOOKUP: only when user explicitly references a report/FIR number
+    # Use word boundary AND require a 3+ digit number
+    # "cases" should NOT match — only "case 123", "report 456", "FIR #789"
+    if re.search(r'\b(report|fir)\b.*\d{3,}', query_lower) or \
+       re.search(r'\bcase\s+(number|no\.?|#)?\s*\d{3,}', query_lower) or \
+       re.search(r'#\s*\d{3,}', query_lower) or \
+       re.search(r'\blookup\b.*\d{3,}', query_lower):
         return "CASE_LOOKUP"
 
     # SMALL_TALK: very short greetings
