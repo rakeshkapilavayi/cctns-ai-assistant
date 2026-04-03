@@ -79,7 +79,7 @@
   }
   @keyframes pulse-ring {
     0%,100% { box-shadow: 0 0 12px var(--accent-glow); }
-    50%      { box-shadow: 0 0 24px rgba(0,212,255,0.45); }
+    50%      { box-shadow: 0 0 24px rgba(0,212,255,0.45)); }
   }
   .header-title { font-family: var(--font-display); font-size: 20px; font-weight: 700; letter-spacing: 3px; color: var(--accent); text-shadow: 0 0 20px rgba(0,212,255,0.5); }
   .header-sub   { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); letter-spacing: 2px; margin-top: 1px; }
@@ -223,7 +223,6 @@
   }
   .right-panel.open { transform: translateX(0); }
 
-  /* Glowing left edge on open */
   .right-panel::before {
     content: ''; position: absolute; top: 0; left: -1px; bottom: 0; width: 1px;
     background: linear-gradient(180deg, transparent 5%, var(--accent) 50%, transparent 95%);
@@ -460,12 +459,12 @@
           Loading...
         </div>
       </div>
-      </div><!-- end panel-content -->
-  </div><!-- end tab-settings -->
+    </div><!-- end tab-settings -->
+  </div><!-- end panel-content -->
 </aside>
 
 <script>
-// ── Settings — API_BASE and API key are changeable at runtime ────────────────
+// ── Settings ──────────────────────────────────────────────────────────────────
 const DEFAULT_API_BASE = 'https://cctns-ai-assistant-24ri.onrender.com';
 
 let API_BASE = localStorage.getItem('cctns_api_base') || DEFAULT_API_BASE;
@@ -498,11 +497,8 @@ async function saveSettings() {
   const newKey = document.getElementById('set-api-key').value.trim();
   const msgEl  = document.getElementById('settings-msg');
 
-  if (!newUrl) {
-    showSettingsMsg('⚠️ URL cannot be empty', 'warning'); return;
-  }
+  if (!newUrl) { showSettingsMsg('⚠️ URL cannot be empty', 'warning'); return; }
 
-  // If a new API key is provided, send it to the backend to apply
   if (newKey && newKey !== GROQ_API_KEY_OVERRIDE) {
     try {
       showSettingsMsg('⏳ Applying new API key...', 'info');
@@ -512,15 +508,12 @@ async function saveSettings() {
         body: JSON.stringify({ api_key: newKey })
       });
       const data = await res.json();
-      if (!res.ok) {
-        showSettingsMsg(`❌ ${data.error || 'Failed to update key'}`, 'error'); return;
-      }
+      if (!res.ok) { showSettingsMsg(`❌ ${data.error || 'Failed to update key'}`, 'error'); return; }
     } catch (e) {
       showSettingsMsg(`❌ Could not reach backend: ${e.message}`, 'error'); return;
     }
   }
 
-  // Save to localStorage and apply
   API_BASE = newUrl;
   GROQ_API_KEY_OVERRIDE = newKey;
   localStorage.setItem('cctns_api_base', newUrl);
@@ -536,7 +529,7 @@ function showSettingsMsg(text, type) {
   const colors = { success: '#2ed573', error: '#ff4757', warning: '#ffa502', info: '#00d4ff' };
   el.style.display = 'block';
   el.style.color = colors[type] || '#e8f4fd';
-  el.style.background = colors[type] ? colors[type] + '18' : 'transparent';
+  el.style.background = (colors[type] || '#333') + '18';
   el.style.border = `1px solid ${colors[type] || '#333'}44`;
   el.textContent = text;
   if (type === 'success') setTimeout(() => { el.style.display = 'none'; }, 3000);
@@ -550,10 +543,9 @@ let panelOpen = false;
 function updateClock() { document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-IN',{hour12:false}); }
 updateClock(); setInterval(updateClock, 1000);
 
-// Init settings on load
 initSettings();
 
-// ── Panel toggle ──────────────────────────────────────────────────────────────
+// ── Panel ─────────────────────────────────────────────────────────────────────
 function togglePanel() { panelOpen ? closePanel() : openPanel(); }
 
 function openPanel() {
@@ -572,7 +564,6 @@ function closePanel() {
   document.getElementById('ptb-arrow').textContent = '◀';
 }
 
-// ── Tab switch ────────────────────────────────────────────────────────────────
 function switchTab(name, btn) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
@@ -706,7 +697,6 @@ async function sendMessage() {
   const query = input.value.trim();
   if (!query) return;
 
-  // If still recording when send is triggered manually, stop mic first
   if (isRecording) stopVoice();
 
   input.value = ''; input.style.height = 'auto';
@@ -721,31 +711,50 @@ async function sendMessage() {
       body: JSON.stringify({ message: query, user_id: 'officer_001' })
     });
 
-    // Try to get JSON body regardless of status code (Flask returns JSON even on 500)
     let data;
     try { data = await res.json(); } catch { data = {}; }
 
+    removeTypingIndicator(tid);
+
     if (!res.ok) {
-      // Show the actual backend error message if available
-      const errMsg = data?.error || data?.message || `Server returned ${res.status}`;
-      removeTypingIndicator(tid);
-      addBotMessage(`⚠️ Backend error: ${errMsg}`, null, null);
+      const errMsg = data?.answer || data?.error || `Server returned ${res.status}`;
+      addBotMessage(`⚠️ ${errMsg}`, null, null);
       document.getElementById('send-btn').disabled = false;
       input.focus();
       return;
     }
 
-    removeTypingIndicator(tid);
-    addBotMessage(data.answer || 'No response.', data.route, data);
+    // ── Bulletproof answer extraction ──────────────────────────────────────
+    let displayAnswer = '';
+
+    if (data.answer && data.answer.trim()) {
+      displayAnswer = data.answer.trim();
+    } else if (data.records && data.records.length > 0) {
+      const count = data.total_rows || data.records.length;
+      const firstRec = data.records[0];
+      const city  = firstRec?.city  || '';
+      const crime = firstRec?.crime_description || '';
+      if (city && crime)      displayAnswer = `Found ${count} ${crime} case(s) in ${city} matching your criteria.`;
+      else if (city)          displayAnswer = `Found ${count} record(s) in ${city} matching your criteria.`;
+      else if (crime)         displayAnswer = `Found ${count} ${crime} case(s) matching your criteria.`;
+      else                    displayAnswer = `Found ${count} record(s) matching your query.`;
+    } else if (data.record) {
+      displayAnswer = 'Case record retrieved successfully.';
+    } else if (data.error) {
+      displayAnswer = `⚠️ ${data.error}`;
+    } else {
+      displayAnswer = 'No results found for your query.';
+    }
+
+    addBotMessage(displayAnswer, data.route, data);
     updateStats(data);
     addHistory(query, data.route);
     if (data.sql) addSqlLog(data.sql, query);
 
   } catch (err) {
     removeTypingIndicator(tid);
-    // Network-level error (Flask not running at all)
     addBotMessage(
-      `❌ Cannot reach Flask backend at ${API_BASE}\n\nMake sure you ran: python app.py\n\nError: ${err.message}`,
+      `❌ Cannot reach backend at ${API_BASE}\n\nError: ${err.message}`,
       null, null
     );
   }
@@ -756,7 +765,7 @@ async function sendMessage() {
 
 function sendQuick(text) { document.getElementById('query-input').value = text; sendMessage(); }
 
-// ── Stats / History / SQL log ─────────────────────────────────────────────────
+// ── Stats / History / SQL ─────────────────────────────────────────────────────
 function updateStats(data) {
   sessionQueries++;
   document.getElementById('stat-queries').textContent = sessionQueries;
@@ -786,14 +795,7 @@ function addSqlLog(sql, query) {
 }
 
 // ── Voice ─────────────────────────────────────────────────────────────────────
-// Behaviour:
-//   • Click 🎤  → starts continuous listening, shows live transcript in input box
-//   • Click ⏹  → stops mic, keeps transcript in box, user can edit before sending
-//   • Send btn  → sends whatever is in the box (stops mic automatically if still running)
-//   • Recognition never auto-sends — only the user decides when to send
-
-let finalTranscript = '';   // accumulates confirmed words
-let interimSpan = null;     // live preview element inside textarea (visual only)
+let finalTranscript = '';
 
 function toggleVoice() {
   if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
@@ -813,8 +815,8 @@ function startVoice() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   recognition = new SR();
   recognition.lang = 'en-IN';
-  recognition.continuous = true;        // ← keeps listening, doesn't auto-stop
-  recognition.interimResults = true;    // ← shows words as you speak
+  recognition.continuous = true;
+  recognition.interimResults = true;
   recognition.maxAlternatives = 1;
 
   recognition.onstart = () => {
@@ -822,53 +824,38 @@ function startVoice() {
     document.getElementById('voice-btn').classList.add('recording');
     document.getElementById('voice-btn').textContent = '⏹';
     document.getElementById('voice-indicator').classList.add('active');
-    updateVoiceLabel('Listening… speak your query');
   };
 
   recognition.onresult = (e) => {
     let interim = '';
-    // Loop through all results — collect final and interim parts
     for (let i = e.resultIndex; i < e.results.length; i++) {
       const transcript = e.results[i][0].transcript;
-      if (e.results[i].isFinal) {
-        finalTranscript += transcript + ' ';
-      } else {
-        interim = transcript;
-      }
+      if (e.results[i].isFinal) finalTranscript += transcript + ' ';
+      else interim = transcript;
     }
-    // Show combined in input box (final + live interim preview)
     const combined = (finalTranscript + interim).trim();
     input.value = combined;
     autoResize(input);
-    // Scroll input to end so user sees latest words
     input.scrollTop = input.scrollHeight;
   };
 
   recognition.onerror = (e) => {
-    if (e.error === 'no-speech') {
-      // No speech detected yet — restart silently to keep listening
-      if (isRecording) {
-        recognition.stop();
-        setTimeout(() => { if (isRecording) startVoiceRestart(); }, 200);
-      }
+    if (e.error === 'no-speech' && isRecording) {
+      recognition.stop();
+      setTimeout(() => { if (isRecording) startVoiceRestart(); }, 200);
       return;
     }
-    console.error('Voice error:', e.error);
     stopVoice();
   };
 
   recognition.onend = () => {
-    // Browser ended the session (e.g., network glitch) — restart if user hasn't stopped
-    if (isRecording) {
-      setTimeout(() => { if (isRecording) startVoiceRestart(); }, 200);
-    }
+    if (isRecording) setTimeout(() => { if (isRecording) startVoiceRestart(); }, 200);
   };
 
   recognition.start();
 }
 
 function startVoiceRestart() {
-  // Re-create recognition to restart without clearing existing transcript
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   recognition = new SR();
   recognition.lang = 'en-IN';
@@ -912,16 +899,9 @@ function stopVoice() {
   document.getElementById('voice-btn').classList.remove('recording');
   document.getElementById('voice-btn').textContent = '🎤';
   document.getElementById('voice-indicator').classList.remove('active');
-  updateVoiceLabel('Listening… speak now');
-  // Clean up any trailing space in the input
   const input = document.getElementById('query-input');
   input.value = input.value.trim();
   autoResize(input);
-}
-
-function updateVoiceLabel(text) {
-  const el = document.querySelector('.voice-indicator span');
-  if (el) el.textContent = text;
 }
 </script>
 </body>
