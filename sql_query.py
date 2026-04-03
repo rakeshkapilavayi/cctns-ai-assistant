@@ -92,7 +92,7 @@ def generate_sql(question: str, context_hint: str) -> str:
             {"role": "user",   "content": user_content},
         ],
         model=GROQ_MODEL,
-        temperature=0.0,   # zero temp for deterministic SQL
+        temperature=0.0,
         max_tokens=256,
     )
     return resp.choices[0].message.content
@@ -109,9 +109,9 @@ def run_query(sql: str) -> pd.DataFrame | None:
         return None
 
 
-def comprehend(question: str, records: list, total: int) -> str:
-    """Ask LLM to summarize results in plain English."""
-    sample  = records[:10]
+def comprehend(question: str, records: list) -> str:
+    sample = records[:10]
+    total  = len(records)
     payload = (
         f"QUESTION: {question}\n"
         f"TOTAL RESULTS: {total}\n"
@@ -144,21 +144,19 @@ def sql_query_chain(question: str) -> dict:
     except Exception as e:
         print(f"[sql_query] generate_sql failed: {e}")
         return {
-            "answer":     "⚠️ Could not generate query right now. Please try again in a moment.",
-            "records":    [],
-            "sql":        None,
-            "error":      str(e),
-            "total_rows": 0,
+            "answer":  "⚠️ Could not generate query right now. Please try again in a moment.",
+            "records": [],
+            "sql":     None,
+            "error":   str(e),
         }
 
     matches = re.findall(r"<SQL>(.*?)</SQL>", raw, re.DOTALL)
     if not matches:
         return {
-            "answer":     "❌ Couldn't generate a valid query. Please rephrase.",
-            "records":    [],
-            "sql":        None,
-            "error":      "no_sql_generated",
-            "total_rows": 0,
+            "answer":  "❌ Couldn't generate a valid query. Please rephrase.",
+            "records": [],
+            "sql":     None,
+            "error":   "no_sql_generated",
         }
 
     sql = matches[0].strip()
@@ -174,72 +172,45 @@ def sql_query_chain(question: str) -> dict:
     # Step 3: Safety check
     if re.search(r'\b(DROP|DELETE|UPDATE|INSERT|ALTER|CREATE)\b', sql, re.IGNORECASE):
         return {
-            "answer":     "⚠️ Query blocked for security reasons.",
-            "records":    [],
-            "sql":        sql,
-            "error":      "unsafe_query",
-            "total_rows": 0,
+            "answer":  "⚠️ Query blocked for security reasons.",
+            "records": [],
+            "sql":     sql,
+            "error":   "unsafe_query",
         }
 
     # Step 4: Execute
     df = run_query(sql)
     if df is None:
         return {
-            "answer":     "❌ Error executing the query. Please try again.",
-            "records":    [],
-            "sql":        sql,
-            "error":      "execution_error",
-            "total_rows": 0,
+            "answer":  "❌ Error executing the query. Please try again.",
+            "records": [],
+            "sql":     sql,
+            "error":   "execution_error",
         }
 
     if df.empty:
         return {
-            "answer":     "🔍 No records found matching your criteria.",
-            "records":    [],
-            "sql":        sql,
-            "error":      None,
-            "total_rows": 0,
+            "answer":  "🔍 No records found matching your criteria.",
+            "records": [],
+            "sql":     sql,
+            "error":   None,
         }
 
-    total_rows = len(df)
-    records    = df.head(20).to_dict(orient="records")
+    records = df.head(20).to_dict(orient="records")
 
-    # Step 5: Comprehend — bulletproof fallback, never returns empty
-    answer = ""
+    # Step 5: Comprehend
     try:
-        answer = comprehend(question, records, total_rows)
-        if not answer or not answer.strip():
-            answer = ""   # force fallback below
+        answer = comprehend(question, records)
     except Exception as e:
         print(f"[sql_query] comprehend failed: {e}")
-        answer = ""
-
-    if not answer:
-        # Build a solid fallback summary without any LLM call
-        city_val  = ""
-        crime_val = ""
-        try:
-            if records:
-                city_val  = records[0].get("city", "")
-                crime_val = records[0].get("crime_description", "")
-        except Exception:
-            pass
-
-        if city_val and crime_val:
-            answer = f"Found {total_rows} {crime_val} case(s) in {city_val} matching your criteria."
-        elif city_val:
-            answer = f"Found {total_rows} record(s) in {city_val} matching your criteria."
-        elif crime_val:
-            answer = f"Found {total_rows} {crime_val} case(s) matching your criteria."
-        else:
-            answer = f"Found {total_rows} record(s) matching your query."
+        answer = f"Found {len(records)} record(s) matching your query."
 
     return {
         "answer":     answer,
         "records":    records,
         "sql":        sql,
         "error":      None,
-        "total_rows": total_rows,
+        "total_rows": len(df),
     }
 
 
