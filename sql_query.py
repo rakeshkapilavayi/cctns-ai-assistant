@@ -188,12 +188,16 @@ def sql_query_chain(question: str) -> dict:
 
     records = df.head(20).to_dict(orient="records")
 
-    # Step 5: Comprehend
+    # Step 5: Comprehend — with solid fallback if LLM returns empty
     try:
         answer = comprehend(question, records)
+        # If LLM somehow returns empty, build a fallback summary
+        if not answer or not answer.strip():
+            raise ValueError("Empty response from comprehend")
     except Exception as e:
-        print(f"[sql_query] comprehend failed: {e}")
-        answer = f"Found {len(records)} record(s) matching your query."
+        print(f"[sql_query] comprehend failed or empty: {e}")
+        total = result_total = len(df) if 'df' in dir() else len(records)
+        answer = f"Found {total} record(s) matching your query."
 
     return {
         "answer":     answer,
